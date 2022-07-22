@@ -9,20 +9,18 @@ import (
 	"github.com/genshinsim/gcsim/pkg/core/combat"
 )
 
-var spinFrames []int
-var finishFrames []int
+var totalFrames []int
 
 const (
 	startFrames   = 67
 	spinHitmark   = 12
+	spinFrames    = 23
 	finishHitmark = 30
+	finishFrames  = 48
+	maxSpinTime   = 300
 )
 
-const maxSpinTime = 300
-
 func init() {
-	spinFrames = frames.InitAbilSlice(26)
-	finishFrames = frames.InitAbilSlice(48)
 }
 
 func (c *char) ChargeAttack(p map[string]int) action.ActionInfo {
@@ -54,25 +52,26 @@ func (c *char) ChargeAttack(p map[string]int) action.ActionInfo {
 			totalSpinFrames+spinHitmark,
 		)
 
-		totalSpinFrames += spinFrames[action.InvalidAction]
-		remainingDuration -= spinFrames[action.InvalidAction]
+		totalSpinFrames += spinFrames
+		remainingDuration -= spinFrames
 
-		//Stop spinning if we're past maximum allowed duration (5 seconds), or player has let go
-		if remainingDuration <= 0 || totalSpinFrames > maxSpinTime {
+		//Stop spinning if we're past maximum allowed duration (5 seconds)
+		if totalSpinFrames > maxSpinTime {
+			totalSpinFrames += 3
 			autoEnd = true
 			break
 		}
-
-		//A spin's frames are cut short when followed by another spin
-		totalSpinFrames -= 3
-		remainingDuration += 3
 	}
 
 	if p["no_finish"] > 0 && !autoEnd {
+		totalFrames = frames.InitAbilSlice(totalSpinFrames)
+		totalFrames[action.ActionDash] = totalSpinFrames - spinFrames - 3 + spinHitmark
+		totalFrames[action.ActionJump] = totalSpinFrames - spinFrames - 3 + spinHitmark
+
 		return action.ActionInfo{
-			Frames:          frames.NewAbilFunc(finishFrames),
-			AnimationLength: totalSpinFrames,
-			CanQueueAfter:   totalSpinFrames - spinFrames[action.InvalidAction] + spinHitmark,
+			Frames:          frames.NewAbilFunc(totalFrames),
+			AnimationLength: totalFrames[action.InvalidAction],
+			CanQueueAfter:   totalSpinFrames - spinFrames - 3 + spinHitmark,
 			State:           action.ChargeAttackState,
 		}
 	}
@@ -86,9 +85,13 @@ func (c *char) ChargeAttack(p map[string]int) action.ActionInfo {
 		totalSpinFrames+finishHitmark,
 	)
 
+	totalFrames = frames.InitAbilSlice(totalSpinFrames + finishFrames)
+	totalFrames[action.ActionDash] = totalSpinFrames + finishHitmark
+	totalFrames[action.ActionJump] = totalSpinFrames + finishHitmark
+
 	return action.ActionInfo{
-		Frames:          frames.NewAbilFunc(finishFrames),
-		AnimationLength: totalSpinFrames + finishFrames[action.InvalidAction],
+		Frames:          frames.NewAbilFunc(totalFrames),
+		AnimationLength: totalFrames[action.InvalidAction],
 		CanQueueAfter:   totalSpinFrames + finishHitmark,
 		State:           action.ChargeAttackState,
 	}
