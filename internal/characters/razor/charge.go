@@ -13,10 +13,10 @@ var totalFrames []int
 
 const (
 	startFrames   = 67
-	spinHitmark   = 12
+	spinHitmark   = 7
 	spinFrames    = 23
-	finishHitmark = 30
-	finishFrames  = 48
+	finishHitmark = 28
+	finishFrames  = 51
 	maxSpinTime   = 300
 )
 
@@ -33,12 +33,19 @@ func (c *char) ChargeAttack(p map[string]int) action.ActionInfo {
 		Durability: 25,
 	}
 
-	//TODO: Stamina stuff
+	//Charge Attacks are disabled during Razor's burst
+	if c.StatusIsActive(burstBuffKey) {
+		return action.ActionInfo{
+			Frames:          frames.NewAbilFunc(frames.InitAbilSlice(0)),
+			AnimationLength: 0,
+			CanQueueAfter:   0,
+			State:           c.Core.Player.CurrentState(),
+		}
+	}
 
+	//TODO: Stamina + Hitlag
 	var remainingDuration int = p["duration"] - startFrames
 	var spinCount int = 0
-	var autoEnd bool = remainingDuration <= 0
-
 	var totalSpinFrames int = startFrames
 
 	for remainingDuration > 0 {
@@ -57,42 +64,52 @@ func (c *char) ChargeAttack(p map[string]int) action.ActionInfo {
 
 		//Stop spinning if we're past maximum allowed duration (5 seconds)
 		if totalSpinFrames > maxSpinTime {
-			totalSpinFrames += 3
-			autoEnd = true
 			break
 		}
 	}
 
-	if p["no_finish"] > 0 && !autoEnd {
-		totalFrames = frames.InitAbilSlice(totalSpinFrames)
-		totalFrames[action.ActionDash] = totalSpinFrames - spinFrames - 3 + spinHitmark
-		totalFrames[action.ActionJump] = totalSpinFrames - spinFrames - 3 + spinHitmark
+	//add final spin frames
+	totalSpinFrames += 3
 
-		return action.ActionInfo{
-			Frames:          frames.NewAbilFunc(totalFrames),
-			AnimationLength: totalFrames[action.InvalidAction],
-			CanQueueAfter:   totalSpinFrames - spinFrames - 3 + spinHitmark,
-			State:           action.ChargeAttackState,
-		}
+	if p["no_finish"] == 0 {
+		ai.Mult = charge[1][c.TalentLvlAttack()]
+		ai.Abil = "Charge Attack Finishing Slash"
+		c.Core.QueueAttack(
+			ai,
+			combat.NewCircleHit(c.Core.Combat.Player(), 2, false, combat.TargettableEnemy),
+			totalSpinFrames+finishHitmark,
+			totalSpinFrames+finishHitmark,
+		)
 	}
 
-	ai.Mult = charge[1][c.TalentLvlAttack()]
-	ai.Abil = "Charge Attack Finishing Slash"
-	c.Core.QueueAttack(
-		ai,
-		combat.NewCircleHit(c.Core.Combat.Player(), 2, false, combat.TargettableEnemy),
-		totalSpinFrames+finishHitmark,
-		totalSpinFrames+finishHitmark,
-	)
+	var cancelFrame int = totalSpinFrames + finishHitmark
+	if p["no_finish"] > 0 {
+		cancelFrame = totalSpinFrames - spinFrames - 3 + spinHitmark
+
+		//Set the finisher in a task in case the next action is unable to actually cancel the spin, so the attack still occurs
+		c.QueueCharTask(func() {
+			if c.Core.Player.CharIsActive(c.Base.Key) && c.Core.Player.CurrentState() == action.ChargeAttackState {
+				ai.Mult = charge[1][c.TalentLvlAttack()]
+				ai.Abil = "Charge Attack Finishing Slash"
+				c.Core.QueueAttack(
+					ai,
+					combat.NewCircleHit(c.Core.Combat.Player(), 2, false, combat.TargettableEnemy),
+					0,
+					0,
+				)
+			}
+		}, totalSpinFrames+finishHitmark)
+	}
 
 	totalFrames = frames.InitAbilSlice(totalSpinFrames + finishFrames)
-	totalFrames[action.ActionDash] = totalSpinFrames + finishHitmark
-	totalFrames[action.ActionJump] = totalSpinFrames + finishHitmark
+	totalFrames[action.ActionDash] = cancelFrame
+	totalFrames[action.ActionJump] = cancelFrame
+	totalFrames[action.ActionSwap] = cancelFrame
 
 	return action.ActionInfo{
 		Frames:          frames.NewAbilFunc(totalFrames),
 		AnimationLength: totalFrames[action.InvalidAction],
-		CanQueueAfter:   totalSpinFrames + finishHitmark,
+		CanQueueAfter:   cancelFrame,
 		State:           action.ChargeAttackState,
 	}
 }
